@@ -1,82 +1,15 @@
-use std::path::PathBuf;
-use std::process;
+mod config;
+
+use config::{Config, ConfigType, ContentInfo, FileInfo};
+use std::path::{Path, PathBuf};
+use std::{fs, io, process};
+use std::io::BufRead;
 use clap::{command, Arg, ArgMatches};
+use walkdir::WalkDir;
 
 #[derive(Debug)]
-struct FileInfo {
-    value: String,
-}
-
-#[derive(Debug)]
-struct ContentInfo {
-    value: String,
-}
-
-#[derive(Debug)]
-enum ConfigType {
-    File(FileInfo),
-    Content(ContentInfo),
-    Both {file_info: FileInfo, content_info: ContentInfo},
-}
-
-#[derive(Debug)]
-struct Config {
-    starting_directory: PathBuf,
-    config_type: ConfigType,
-}
-
-impl Config {
-    pub fn from_input_args(input: &ArgMatches) -> Result<Config, String> {
-        let starting_directory = PathBuf::from(
-            input.get_one::<String>("start_dir").cloned().unwrap()
-        );
-
-        if !starting_directory.is_dir() {
-            return Err(format!("{} is not a valid directory.", starting_directory.display()));
-        }
-
-        let file = input.get_one::<String>("file_name").cloned();
-        let content = input.get_one::<String>("content").cloned();
-
-        Config::new(starting_directory, file, content)
-    }
-
-    pub fn new(starting_directory: PathBuf, file: Option<String>, content: Option<String>) -> Result<Config, String> {
-        match (file, content) {
-            (Some(f), Some(c)) => Ok(Config {
-                starting_directory,
-                config_type: ConfigType::Both {
-                    file_info: FileInfo {value: f},
-                    content_info: ContentInfo {value: c}
-                },
-            }),
-            (Some(f), None) => Ok(Config {
-                starting_directory,
-                config_type: ConfigType::File(FileInfo { value: f }),
-            }),
-            (None, Some(c)) => Ok(Config {
-                starting_directory,
-                config_type: ConfigType::Content(ContentInfo { value: c }),
-            }),
-            (None, None) => Err(String::from("Both file name and content are missing. Please provide at least one!")),
-        }
-    }
-
-    pub fn get_file_info(&self) -> Option<&FileInfo> {
-        match &self.config_type {
-            ConfigType::File(f) => Some(&f),
-            ConfigType::Content(_) => None,
-            ConfigType::Both { file_info: f, .. } => Some(&f)
-        }
-    }
-
-    pub fn get_content_info(&self) -> Option<&ContentInfo> {
-        match &self.config_type {
-            ConfigType::File(_) => None,
-            ConfigType::Content(c) => Some(&c),
-            ConfigType::Both { content_info: c, .. } => Some(&c)
-        }
-    }
+pub struct File {
+    pub path: PathBuf,
 }
 
 fn parse_input() -> ArgMatches {
@@ -105,11 +38,93 @@ fn parse_input() -> ArgMatches {
         .get_matches()
 }
 
+fn retrieve_config_matches(config: &Config) -> Vec<File> {
+    let dir_entries = WalkDir::new(&config.starting_directory);
+
+    // TODO: implement optional visibility of io::Error instead of always discarding in .filter_map()
+    match &config.config_type {
+        ConfigType::File(file_info) => {
+            retrieve_file_matches(dir_entries, file_info)
+        }
+        ConfigType::Content(content_info) => {
+            retrieve_content_matches(dir_entries, content_info)
+        }
+        ConfigType::Both {file_info, content_info } => {
+            retrieve_both_matches(dir_entries, file_info, content_info)
+        }
+    }
+}
+
+fn retrieve_file_matches(dir_entries: WalkDir, file_info: &FileInfo) -> Vec<File> {
+    dir_entries
+        .into_iter()
+        .filter_map(|entry| entry.ok() )
+        .filter(|entry| entry.file_name().to_str().unwrap_or("").contains(&file_info.value))
+        .map(|entry| File { path: entry.into_path() })
+        .collect()
+}
+
+fn retrieve_content_matches(dir_entries: WalkDir, content_info: &ContentInfo) -> Vec<File> {
+    dir_entries
+        .into_iter()
+        .filter_map(|entry| entry.ok() )
+        .filter(|entry| {
+            if !entry.file_type().is_file() { return false; }
+
+            let check = check_file_contains_substring(entry.path(), &content_info.value);
+
+            match check {
+                Ok(true) => true,
+                Ok(false) => false,
+                Err(_) => false,
+            }
+        })
+        .map(|entry| File { path: entry.into_path() })
+        .collect()
+}
+
+fn retrieve_both_matches(dir_entries: WalkDir, file_info: &FileInfo, content_info: &ContentInfo) -> Vec<File> {
+    dir_entries
+        .into_iter()
+        .filter_map(|entry| entry.ok() )
+        .filter(|entry| entry.file_name().to_str().unwrap_or("").contains(&file_info.value))
+        .filter(|entry| {
+            if !entry.file_type().is_file() { return false; }
+
+            let check = check_file_contains_substring(entry.path(), &content_info.value);
+
+            match check {
+                Ok(true) => true,
+                Ok(false) => false,
+                Err(_) => false,
+            }
+        })
+        .map(|entry| File { path: entry.into_path() })
+        .collect()
+}
+
+fn check_file_contains_substring(file: &Path, substring: &str) -> Result<bool, io::Error> {
+    let file = fs::File::open(file)?;
+    let reader = io::BufReader::new(file);
+
+    for line_result in reader.lines() {
+        let line = line_result?;
+
+        if line.contains(substring) { return Ok(true); }
+    }
+    Ok(false)
+}
+
 fn main() {
     let input = parse_input();
     let config = Config::from_input_args(&input).unwrap_or_else(|err| {
         eprintln!("{}", err);
         process::exit(1);
     });
+    let matches = retrieve_config_matches(&config);
+
+    if matches.len() > 0 { println!("{} results", matches.len()); }
+
+    println!("{:#?}", matches);
     println!("{:#?}", config);
 }
