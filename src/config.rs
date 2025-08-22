@@ -1,5 +1,5 @@
-use std::path::PathBuf;
 use clap::ArgMatches;
+use std::path::PathBuf;
 
 #[derive(Debug)]
 pub struct FileInfo {
@@ -15,7 +15,10 @@ pub struct ContentInfo {
 pub enum ConfigType {
     File(FileInfo),
     Content(ContentInfo),
-    Both {file_info: FileInfo, content_info: ContentInfo},
+    Both {
+        file_info: FileInfo,
+        content_info: ContentInfo,
+    },
 }
 
 #[derive(Debug)]
@@ -26,12 +29,14 @@ pub struct Config {
 
 impl Config {
     pub fn from_input_args(input: &ArgMatches) -> Result<Config, String> {
-        let starting_directory = PathBuf::from(
-            input.get_one::<String>("start_dir").cloned().unwrap()
-        );
+        let starting_directory =
+            PathBuf::from(input.get_one::<String>("start_dir").cloned().unwrap());
 
         if !starting_directory.is_dir() {
-            return Err(format!("{} is not a valid directory.", starting_directory.display()));
+            return Err(format!(
+                "{} is not a valid directory.",
+                starting_directory.display()
+            ));
         }
 
         let file = input.get_one::<String>("file_name").cloned();
@@ -40,13 +45,17 @@ impl Config {
         Config::new(starting_directory, file, content)
     }
 
-    pub fn new(starting_directory: PathBuf, file: Option<String>, content: Option<String>) -> Result<Config, String> {
+    pub fn new(
+        starting_directory: PathBuf,
+        file: Option<String>,
+        content: Option<String>,
+    ) -> Result<Config, String> {
         match (file, content) {
             (Some(f), Some(c)) => Ok(Config {
                 starting_directory,
                 config_type: ConfigType::Both {
-                    file_info: FileInfo {value: f},
-                    content_info: ContentInfo {value: c}
+                    file_info: FileInfo { value: f },
+                    content_info: ContentInfo { value: c },
                 },
             }),
             (Some(f), None) => Ok(Config {
@@ -57,7 +66,9 @@ impl Config {
                 starting_directory,
                 config_type: ConfigType::Content(ContentInfo { value: c }),
             }),
-            (None, None) => Err(String::from("Both file name and content are missing. Please provide at least one!")),
+            (None, None) => Err(String::from(
+                "Both file name and content are missing. Please provide at least one!",
+            )),
         }
     }
 
@@ -65,7 +76,7 @@ impl Config {
         match &self.config_type {
             ConfigType::File(f) => Some(&f),
             ConfigType::Content(_) => None,
-            ConfigType::Both { file_info: f, .. } => Some(&f)
+            ConfigType::Both { file_info: f, .. } => Some(&f),
         }
     }
 
@@ -73,7 +84,9 @@ impl Config {
         match &self.config_type {
             ConfigType::File(_) => None,
             ConfigType::Content(c) => Some(&c),
-            ConfigType::Both { content_info: c, .. } => Some(&c)
+            ConfigType::Both {
+                content_info: c, ..
+            } => Some(&c),
         }
     }
 }
