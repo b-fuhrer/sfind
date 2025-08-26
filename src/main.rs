@@ -5,7 +5,7 @@ use config::{Config, ConfigType, ContentInfo, FileInfo};
 use std::io::BufRead;
 use std::path::{Path, PathBuf};
 use std::{fs, io, process};
-use walkdir::WalkDir;
+use walkdir::{DirEntry, WalkDir};
 
 #[derive(Debug)]
 pub struct File {
@@ -52,89 +52,51 @@ fn parse_input() -> ArgMatches {
 
 fn retrieve_config_matches(config: &Config) -> Vec<File> {
     let dir_entries = WalkDir::new(&config.starting_directory);
+    dir_entries
+        .into_iter()
+        .filter_map(|entry_result| {
+            let entry = entry_result.ok()?;
 
-    // TODO: implement optional visibility of io::Error instead of always discarding in .filter_map()
+            if !entry.file_type().is_file() {
+                return None;
+            }
+
+            let is_match = entry_matches_config_info(&entry, &config);
+
+            if is_match {
+                return Some(File {
+                    path: entry.into_path(),
+                });
+            }
+            None
+        })
+        .collect()
+}
+
+fn entry_matches_config_info(entry: &DirEntry, config: &Config) -> bool {
     match &config.config_type {
-        ConfigType::File(file_info) => retrieve_file_matches(dir_entries, file_info),
-        ConfigType::Content(content_info) => retrieve_content_matches(dir_entries, content_info),
+        ConfigType::File(file_info) => is_name_match(&entry, &file_info),
+        ConfigType::Content(content_info) => {
+            is_content_match(&entry.path(), &content_info.value).unwrap_or(false)
+        }
         ConfigType::Both {
             file_info,
             content_info,
-        } => retrieve_both_matches(dir_entries, file_info, content_info),
+        } => {
+            is_name_match(&entry, &file_info)
+                && is_content_match(&entry.path(), &content_info.value).unwrap_or(false)
+        }
     }
 }
 
-fn retrieve_file_matches(dir_entries: WalkDir, file_info: &FileInfo) -> Vec<File> {
-    dir_entries
-        .into_iter()
-        .filter_map(|entry| entry.ok())
-        .filter(|entry| {
-            entry
-                .file_name()
-                .to_str()
-                .unwrap_or("")
-                .contains(&file_info.value)
-        })
-        .map(|entry| File {
-            path: entry.into_path(),
-        })
-        .collect()
+fn is_name_match(entry: &DirEntry, file_info: &FileInfo) -> bool {
+    entry
+        .file_name()
+        .to_str()
+        .map_or(false, |name| name.contains(&file_info.value))
 }
 
-fn retrieve_content_matches(dir_entries: WalkDir, content_info: &ContentInfo) -> Vec<File> {
-    dir_entries
-        .into_iter()
-        .filter_map(|entry| entry.ok())
-        .filter(|entry| {
-            if !entry.file_type().is_file() {
-                return false;
-            }
-
-            let check = check_file_contains_substring(entry.path(), &content_info.value);
-
-            match check {
-                Ok(true) => true,
-                Ok(false) => false,
-                Err(_) => false,
-            }
-        })
-        .map(|entry| File {
-            path: entry.into_path(),
-        })
-        .collect()
-}
-
-fn retrieve_both_matches(dir_entries: WalkDir, file_info: &FileInfo, content_info: &ContentInfo) -> Vec<File> {
-    dir_entries
-        .into_iter()
-        .filter_map(|entry| entry.ok())
-        .filter(|entry| {
-            entry
-                .file_name()
-                .to_str()
-                .unwrap_or("")
-                .contains(&file_info.value)
-        })
-        .filter(|entry| {
-            if !entry.file_type().is_file() {
-                return false;
-            }
-
-            let check = check_file_contains_substring(entry.path(), &content_info.value);
-
-            match check {
-                Ok(true) => true,
-                Ok(false) => false,
-                Err(_) => false,
-            }
-        })
-        .map(|entry| File {
-            path: entry.into_path(),
-        })
-        .collect()
-}
-
-fn check_file_contains_substring(file: &Path, substring: &str) -> Result<bool, io::Error> {
+fn is_content_match(file: &Path, substring: &str) -> Result<bool, io::Error> {
     let file = fs::File::open(file)?;
     let reader = io::BufReader::new(file);
 
