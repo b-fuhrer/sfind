@@ -5,6 +5,7 @@ use config::{Config, ConfigType, ContentInfo, FileInfo};
 use std::io::BufRead;
 use std::path::{Path, PathBuf};
 use std::{fs, io, process};
+use colored::Colorize;
 use walkdir::{DirEntry, WalkDir};
 
 #[derive(Debug)]
@@ -60,7 +61,7 @@ fn retrieve_config_matches(config: &Config) -> Vec<File> {
             if !entry.file_type().is_file() {
                 return None;
             }
-
+            
             let is_match = entry_matches_config_info(&entry, &config);
 
             if is_match {
@@ -114,12 +115,12 @@ fn print_matches(matches: &Vec<File>) {
     let matches_amount = matches.len();
 
     if matches_amount == 0 {
-        println!("No matches found.");
+        eprintln!("{}", "No matches found.".red());
         return;
     } else if matches_amount == 1 {
-        println!("Found 1 match:");
+        eprintln!("{}", "Found 1 match:".green());
     } else {
-        println!("Found {} matches:", matches_amount);
+        eprintln!("{}", format!("Found {} matches:", matches_amount).green());
     }
 
     for m in matches {
