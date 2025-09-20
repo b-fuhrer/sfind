@@ -73,65 +73,55 @@ fn parse_input() -> ArgMatches {
 
 fn retrieve_config_matches(config: &Config) -> MatchResults {
     let dir_entries = WalkDir::new(&config.starting_directory);
-    let mut errors: Vec<io::Error> = Vec::new();
-    let matches = dir_entries
+    let initial_results = MatchResults { matches: Vec::new(), errors: Vec::new() };
+    let match_results = dir_entries
         .into_iter()
         .filter_map(|entry_result| {
             let entry = entry_result.ok()?;
 
-            if !entry.file_type().is_file() {
-                return None;
-            }
-
-            let is_match = is_config_match(&entry, config).unwrap_or_else(|error| {
-                errors.push(error);
-                false
-            });
-
-            if is_match {
-                return Some(File { path: entry.into_path() });
+            if entry.file_type().is_file() {
+                return Some(entry);
             }
             None
         })
-        .collect();
+        .fold(initial_results, |mut current_results, entry|{
+            match is_config_match(&entry, config) {
+                Ok(true) => current_results.matches.push(File { path: entry.into_path() }),
+                Ok(false) => (),
+                Err(e) => {
+                    if config.error_policy == ErrorPolicy::Display {
+                        current_results.errors.push(e)
+                    }
+                }
+            }
+            current_results
+        });
 
-    MatchResults { matches, errors }
+    match_results
 }
 
 fn is_config_match(entry: &DirEntry, config: &Config) -> Result<bool, io::Error> {
     match &config.config_type {
-        ConfigType::File(file_info) => Ok(is_file_name_match(entry.file_name(), &file_info.value)),
-        ConfigType::Content(content_info) => {
-            unwrap_by_error_policy(is_file_content_match(entry.path(), &content_info.value), &config.error_policy)
-        }
+        ConfigType::File(file_info) => Ok(is_file_name_match(entry, &file_info.value)),
+        ConfigType::Content(content_info) => is_file_content_match(entry, &content_info.value),
         ConfigType::Both { file_info, content_info } => {
-            if is_file_name_match(entry.file_name(), &file_info.value) {
-                return unwrap_by_error_policy(
-                    is_file_content_match(entry.path(), &content_info.value),
-                    &config.error_policy,
-                );
+            if is_file_name_match(entry, &file_info.value) {
+                return is_file_content_match(entry, &content_info.value);
             }
             Ok(false)
         }
     }
 }
 
-fn unwrap_by_error_policy(
-    match_result: Result<bool, io::Error>, error_policy: &ErrorPolicy,
-) -> Result<bool, io::Error> {
-    if error_policy == &ErrorPolicy::Ignore {
-        return Ok(match_result.unwrap_or(false));
-    }
-    match_result
-}
-
-fn is_file_name_match(file_name: &OsStr, substring: &str) -> bool {
+fn is_file_name_match(file_entry: &DirEntry, substring: &str) -> bool {
+    let file_name = file_entry.file_name();
     file_name
         .to_str()
         .map_or(false, |name| name.contains(substring))
 }
 
-fn is_file_content_match(file_path: &Path, substring: &str) -> Result<bool, io::Error> {
+fn is_file_content_match(file_entry: &DirEntry, substring: &str) -> Result<bool, io::Error> {
+    let file_path = file_entry.path();
     let file = fs::File::open(file_path)?;
     let reader = io::BufReader::new(file);
 
@@ -180,6 +170,6 @@ fn main() {
         eprintln!("{}", error);
         process::exit(-1);
     });
-    let matches = retrieve_config_matches(&config);
-    print_matches(&matches);
+    let match_results = retrieve_config_matches(&config);
+    print_matches(&match_results);
 }
