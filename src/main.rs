@@ -5,9 +5,10 @@ use crate::config::ErrorPolicy;
 use clap::{Arg, ArgAction, ArgMatches, command};
 use colored::Colorize;
 use config::{Config, ConfigType, ContentInfo, FileInfo};
+use rayon::prelude::*;
 use std::cmp::PartialEq;
 use std::error::Error;
-use std::ffi::{OsStr};
+use std::ffi::OsStr;
 use std::io::BufRead;
 use std::path::{Path, PathBuf};
 use std::{fs, io, process};
@@ -73,8 +74,7 @@ fn parse_input() -> ArgMatches {
 
 fn retrieve_config_matches(config: &Config) -> MatchResults {
     let dir_entries = WalkDir::new(&config.starting_directory);
-    let initial_results = MatchResults { matches: Vec::new(), errors: Vec::new() };
-    let match_results = dir_entries
+    let candidates: Vec<DirEntry> = dir_entries
         .into_iter()
         .filter_map(|entry_result| {
             let entry = entry_result.ok()?;
@@ -84,18 +84,35 @@ fn retrieve_config_matches(config: &Config) -> MatchResults {
             }
             None
         })
-        .fold(initial_results, |mut current_results, entry|{
-            match is_config_match(&entry, config) {
-                Ok(true) => current_results.matches.push(File { path: entry.into_path() }),
-                Ok(false) => (),
-                Err(e) => {
-                    if config.error_policy == ErrorPolicy::Display {
-                        current_results.errors.push(e)
+        .collect();
+
+    let match_results = candidates
+        .into_par_iter()
+        .fold(
+            || MatchResults { matches: Vec::new(), errors: Vec::new() },
+            |mut current_results, entry| {
+                match is_config_match(&entry, config) {
+                    Ok(true) => current_results
+                        .matches
+                        .push(File { path: entry.into_path() }),
+                    Ok(false) => (),
+                    Err(e) => {
+                        if config.error_policy == ErrorPolicy::Display {
+                            current_results.errors.push(e)
+                        }
                     }
                 }
-            }
-            current_results
-        });
+                current_results
+            },
+        )
+        .reduce(
+            || MatchResults { matches: Vec::new(), errors: Vec::new() },
+            |mut current_results, new_results| {
+                current_results.matches.extend(new_results.matches);
+                current_results.errors.extend(new_results.errors);
+                current_results
+            },
+        );
 
     match_results
 }
