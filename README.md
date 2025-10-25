@@ -1,2 +1,2 @@
 # sfind
-Simple, fast and efficient substring find for the command line.
+Simple, fast and efficient substring find tool for the command line.

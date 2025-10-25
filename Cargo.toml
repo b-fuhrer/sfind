@@ -2,6 +2,8 @@
 name = "sfind"
 version = "0.1.0"
 edition = "2024"
+description = "Simple, fast and efficient substring find tool for the command line."
+license = "MIT"
 
 [dependencies]
 clap = { version = "4.5.50", features = ["cargo"] }
