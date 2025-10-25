@@ -79,20 +79,4 @@ impl Config {
             )),
         }
     }
-
-    pub fn get_file_info(&self) -> Option<&FileInfo> {
-        match &self.config_type {
-            ConfigType::File(f) => Some(f),
-            ConfigType::Content(_) => None,
-            ConfigType::Both { file_info: f, .. } => Some(f),
-        }
-    }
-
-    pub fn get_content_info(&self) -> Option<&ContentInfo> {
-        match &self.config_type {
-            ConfigType::File(_) => None,
-            ConfigType::Content(c) => Some(c),
-            ConfigType::Both { content_info: c, .. } => Some(c),
-        }
-    }
 }

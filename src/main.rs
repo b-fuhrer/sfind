@@ -1,17 +1,15 @@
-#![allow(unused)]
 mod config;
 
-use crate::config::ErrorPolicy;
+use config::{Config, ConfigType, ErrorPolicy};
+
+use std::io::{BufRead, BufReader, Seek, SeekFrom};
+use std::path::PathBuf;
+use std::{fs, io, process};
+
 use clap::{Arg, ArgAction, ArgMatches, command};
 use colored::Colorize;
-use config::{Config, ConfigType, ContentInfo, FileInfo};
+use memchr::memmem;
 use rayon::prelude::*;
-use std::cmp::PartialEq;
-use std::error::Error;
-use std::ffi::OsStr;
-use std::io::BufRead;
-use std::path::{Path, PathBuf};
-use std::{fs, io, process};
 use walkdir::{DirEntry, WalkDir};
 
 #[derive(Debug)]
@@ -96,9 +94,9 @@ fn retrieve_config_matches(config: &Config) -> MatchResults {
                         .matches
                         .push(File { path: entry.into_path() }),
                     Ok(false) => (),
-                    Err(e) => {
+                    Err(error) => {
                         if config.error_policy == ErrorPolicy::Display {
-                            current_results.errors.push(e)
+                            current_results.errors.push(error)
                         }
                     }
                 }
@@ -140,16 +138,33 @@ fn is_file_name_match(file_entry: &DirEntry, substring: &str) -> bool {
 fn is_file_content_match(file_entry: &DirEntry, substring: &str) -> Result<bool, io::Error> {
     let file_path = file_entry.path();
     let file = fs::File::open(file_path)?;
-    let reader = io::BufReader::new(file);
+    let mut reader = BufReader::new(file);
 
-    for line_result in reader.lines() {
-        let line = line_result?;
+    // binary file detection
+    let first_chunk = reader.fill_buf()?;
+    if memchr::memchr(b'\0', first_chunk).is_some() {
+        return Ok(false);
+    }
 
-        if line.contains(substring) {
+    // no binary file -> go back to beginning of first chunk for normal search
+    reader.seek(SeekFrom::Start(0))?;
+
+    let substring_finder = memmem::Finder::new(substring.as_bytes());
+
+    loop {
+        let buffer = reader.fill_buf()?;
+
+        if buffer.is_empty() {
+            return Ok(false);
+        }
+
+        if substring_finder.find(buffer).is_some() {
             return Ok(true);
         }
+
+        let bytes_consumed = buffer.len();
+        reader.consume(bytes_consumed); // mark bytes as consumed and move buffer's read position forward
     }
-    Ok(false)
 }
 
 fn print_matches(match_results: &MatchResults) {
