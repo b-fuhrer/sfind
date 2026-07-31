@@ -1,4 +1,4 @@
-# sfind ⚡
+# sfind
 
 A simple, fast, and efficient command-line tool for finding files based on filename or content substrings.
 
